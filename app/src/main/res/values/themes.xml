@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme. The Compose UI sets its own theme at runtime,
+         but AndroidManifest requires a theme here for the splash/launch window. -->
+    <style name="Theme.SavingsTracker" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+</resources>
