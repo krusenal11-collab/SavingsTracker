@@ -1,19 +1,25 @@
 package com.savings.tracker.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.savings.tracker.data.SavingsEntry
+import com.savings.tracker.ui.theme.AppColors
 import com.savings.tracker.ui.viewmodel.SavingsViewModel
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -28,195 +34,114 @@ fun AccountDetailScreen(
 ) {
     val accounts by viewModel.accounts.collectAsState()
     val account  = accounts.find { it.id == accountId }
-    // remember(accountId) ensures the same Flow instance is reused across recompositions.
-    // Without this, getEntriesForAccount() returns a new Flow object every time the
-    // composable recomposes, causing collectAsState to restart the DB subscription needlessly.
+    val color    = if (account != null) AppColors.forAccount(account.id) else AppColors.Primary
+
     val entriesFlow = remember(accountId) { viewModel.getEntriesForAccount(accountId) }
     val entries  by entriesFlow.collectAsState(emptyList())
-
-    var showDepositDialog by remember { mutableStateOf(false) }
 
     val moneyFmt = remember { NumberFormat.getCurrencyInstance(Locale.US) }
     val dateFmt  = remember { SimpleDateFormat("MMM d, yyyy  h:mm a", Locale.US) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(account?.name ?: "Account") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().background(AppColors.SystemBg)
+    ) {
+        // ── Gradient header ──────────────────────────────────────────────
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(AppColors.HeaderStart, AppColors.HeaderEnd)))
+                    .padding(start = 8.dp, end = 20.dp, top = 8.dp, bottom = 28.dp)
+            ) {
+                Column {
+                    // Back button + title
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        }
+                        Text(account?.name ?: "Account", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = (-0.3).sp)
                     }
-                }
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showDepositDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Log Deposit")
-            }
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Balance card
-            item {
-                Spacer(Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("Current Balance", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            moneyFmt.format(account?.balance ?: 0.0),
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                if (entries.isNotEmpty()) {
-                    Text(
-                        "Deposit History",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-
-            if (entries.isEmpty()) {
-                item {
+                    Spacer(Modifier.height(12.dp))
+                    // Balance card
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 64.dp),
-                        contentAlignment = Alignment.Center
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.White.copy(alpha = 0.15f))
+                            .padding(16.dp)
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.Savings,
-                                contentDescription = null,
-                                modifier = Modifier.size(56.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            Text("No deposits yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                "Tap + to log your first deposit",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                            Text("Current Balance", fontSize = 11.sp, color = Color.White.copy(alpha = 0.72f), fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp)
+                            Spacer(Modifier.height(6.dp))
+                            Text(moneyFmt.format(account?.balance ?: 0.0), fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = (-1).sp)
                         }
                     }
                 }
-            } else {
-                items(entries, key = { it.id }) { entry ->
-                    DepositCard(entry = entry, moneyFmt = moneyFmt, dateFmt = dateFmt)
-                }
-                item { Spacer(Modifier.height(80.dp)) }
             }
         }
-    }
 
-    if (showDepositDialog) {
-        AddDepositDialog(
-            onDismiss = { showDepositDialog = false },
-            onConfirm = { amount, note ->
-                viewModel.addDeposit(accountId, amount, note)
-                showDepositDialog = false
+        // ── Deposit history ──────────────────────────────────────────────
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Deposit History", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppColors.LabelPrimary)
+                Text("${entries.size} deposits", fontSize = 13.sp, color = AppColors.LabelSecondary)
             }
-        )
+        }
+
+        if (entries.isEmpty()) {
+            item {
+                Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.TrendingUp, contentDescription = null, modifier = Modifier.size(52.dp), tint = AppColors.LabelSecondary)
+                        Spacer(Modifier.height(12.dp))
+                        Text("No deposits yet", color = AppColors.LabelSecondary, fontWeight = FontWeight.Medium)
+                        Text("Tap Add Deposit on the home screen", color = AppColors.LabelSecondary, fontSize = 13.sp)
+                    }
+                }
+            }
+        } else {
+            item {
+                Card(
+                    modifier  = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+                    shape     = RoundedCornerShape(14.dp),
+                    colors    = CardDefaults.cardColors(containerColor = AppColors.CardBg),
+                    elevation = CardDefaults.cardElevation(0.dp)
+                ) {
+                    entries.forEachIndexed { index, entry ->
+                        DepositRow(entry = entry, color = color, moneyFmt = moneyFmt, dateFmt = dateFmt)
+                        if (index < entries.lastIndex) {
+                            HorizontalDivider(modifier = Modifier.padding(start = 54.dp), color = AppColors.Separator, thickness = 0.5.dp)
+                        }
+                    }
+                }
+            }
+        }
+
+        item { Spacer(Modifier.height(32.dp)) }
     }
 }
 
 @Composable
-fun DepositCard(entry: SavingsEntry, moneyFmt: NumberFormat, dateFmt: SimpleDateFormat) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+private fun DepositRow(entry: SavingsEntry, color: Color, moneyFmt: NumberFormat, dateFmt: SimpleDateFormat) {
+    Row(
+        modifier          = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier         = Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(color.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.TrendingUp,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    moneyFmt.format(entry.amount),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                if (entry.note.isNotBlank()) {
-                    Text(entry.note, style = MaterialTheme.typography.bodyMedium)
-                }
-                Text(
-                    dateFmt.format(Date(entry.createdAt)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Icon(Icons.Default.TrendingUp, contentDescription = null, tint = color, modifier = Modifier.size(17.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text("+${moneyFmt.format(entry.amount)}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Success)
+            if (entry.note.isNotBlank()) Text(entry.note, fontSize = 12.sp, color = AppColors.LabelSecondary)
+            Text(dateFmt.format(java.util.Date(entry.createdAt)), fontSize = 11.sp, color = AppColors.LabelSecondary)
         }
     }
-}
-
-@Composable
-fun AddDepositDialog(onDismiss: () -> Unit, onConfirm: (Double, String) -> Unit) {
-    var amountText by remember { mutableStateOf("1000") }
-    var note       by remember { mutableStateOf("") }
-    val amount = amountText.toDoubleOrNull()
-    val valid  = amount != null && amount > 0
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Log Deposit") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { amountText = it },
-                    label = { Text("Amount (USD)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    isError = !valid && amountText.isNotEmpty(),
-                    prefix = { Text("$") }
-                )
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = { Text("Note (optional)") },
-                    placeholder = { Text("Weekly transfer") },
-                    singleLine = true
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { if (valid) onConfirm(amount!!, note.trim()) },
-                enabled = valid
-            ) { Text("Add") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
 }

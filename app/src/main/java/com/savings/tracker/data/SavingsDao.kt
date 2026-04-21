@@ -35,6 +35,14 @@ interface SavingsDao {
     @Insert
     suspend fun insertEntry(entry: SavingsEntry)
 
+    // All entries across all accounts — newest first (for Summary feed)
+    @Query("SELECT * FROM savings_entries ORDER BY createdAt DESC")
+    fun getAllEntries(): Flow<List<SavingsEntry>>
+
+    // All entries oldest first — for building the cumulative chart
+    @Query("SELECT * FROM savings_entries ORDER BY createdAt ASC")
+    fun getAllEntriesAsc(): Flow<List<SavingsEntry>>
+
     // Called when an account is deleted — removes all its deposit history too
     @Query("DELETE FROM savings_entries WHERE accountId = :accountId")
     suspend fun deleteEntriesForAccount(accountId: Int)

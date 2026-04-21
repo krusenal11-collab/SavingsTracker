@@ -10,6 +10,8 @@ class SavingsRepository(private val dao: SavingsDao) {
 
     val allAccounts: Flow<List<BankAccount>> = dao.getAllAccounts()
     val totalSavings: Flow<Double> = dao.getTotalSavings()
+    val allEntries: Flow<List<SavingsEntry>> = dao.getAllEntries()
+    val allEntriesAsc: Flow<List<SavingsEntry>> = dao.getAllEntriesAsc()
 
     suspend fun addAccount(name: String) {
         dao.insertAccount(BankAccount(name = name.trim()))

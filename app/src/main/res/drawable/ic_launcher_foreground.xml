@@ -3,11 +3,39 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Dollar sign foreground for the launcher icon -->
     <path
+        android:pathData="M54,20 C68,22 76,38 75,56 C74,72 65,86 54,90 C43,86 34,72 33,56 C32,38 40,22 54,20 Z"
         android:fillColor="#FFFFFF"
-        android:pathData="M54,20 L54,88 M40,32 Q40,22 54,22 Q68,22 68,32 Q68,42 54,44 Q40,46 40,58 Q40,68 54,68 Q68,68 68,58"
+        android:fillAlpha="0.10"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="6"
-        android:strokeLineCap="round" />
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+    <path
+        android:pathData="M54,90 Q57,95 54,99"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.0"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.50"/>
+    <path
+        android:pathData="M54,24 L54,86"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="0.9"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.18"/>
+    <path
+        android:pathData="M38,76 L70,27"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.8"
+        android:strokeLineCap="round"/>
+    <path
+        android:pathData="M72,37 L72,24 L61,30"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
 </vector>

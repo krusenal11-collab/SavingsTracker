@@ -2,33 +2,49 @@ package com.savings.tracker.ui.theme
 
 import android.os.Build
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 
-// Fallback palette (used on Android < 12)
-private val FallbackColors = lightColorScheme(
-    primary          = Color(0xFF1B6CA8),
+// ── iOS-style system colors ────────────────────────────────────────────────
+object AppColors {
+    val Primary        = Color(0xFF007AFF)
+    val Success        = Color(0xFF34C759)
+    val Warning        = Color(0xFFFF9500)
+    val Purple         = Color(0xFFAF52DE)
+    val Pink           = Color(0xFFFF2D55)
+    val LightBlue      = Color(0xFF5AC8FA)
+    val Destructive    = Color(0xFFFF3B30)
+
+    val HeaderStart    = Color(0xFF1B3A6B)
+    val HeaderEnd      = Color(0xFF0D2A50)
+
+    val SystemBg       = Color(0xFFF2F2F7)
+    val CardBg         = Color(0xFFFFFFFF)
+    val Separator      = Color(0xFFE5E5EA)
+    val LabelPrimary   = Color(0xFF000000)
+    val LabelSecondary = Color(0xFF8E8E93)
+
+    // Each account gets a consistent color by cycling through this list
+    private val accountPalette = listOf(Primary, Success, Warning, Purple, Pink, LightBlue)
+    fun forAccount(id: Int): Color = accountPalette[id % accountPalette.size]
+}
+
+private val AppColorScheme = lightColorScheme(
+    primary          = AppColors.Primary,
     onPrimary        = Color.White,
-    primaryContainer = Color(0xFFD0E4FF),
-    secondary        = Color(0xFF2D9B5A),
-    background       = Color(0xFFF8F9FA),
-    surface          = Color.White
+    primaryContainer = AppColors.Primary.copy(alpha = 0.12f),
+    secondary        = AppColors.Success,
+    background       = AppColors.SystemBg,
+    surface          = AppColors.CardBg,
+    onBackground     = AppColors.LabelPrimary,
+    onSurface        = AppColors.LabelPrimary
 )
 
 @Composable
 fun SavingsTrackerTheme(content: @Composable () -> Unit) {
-    val colorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        // Material You — pulls wallpaper colors automatically on Android 12+
-        dynamicLightColorScheme(LocalContext.current)
-    } else {
-        FallbackColors
-    }
-
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = AppColorScheme,
         content     = content
     )
 }
