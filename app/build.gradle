@@ -12,20 +12,16 @@ android {
         applicationId "com.savings.tracker"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "2.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
-        release {
-            minifyEnabled false
-        }
+        release { minifyEnabled false }
     }
 
-    buildFeatures {
-        compose true
-    }
+    buildFeatures { compose true }
 
     composeOptions {
         kotlinCompilerExtensionVersion '1.5.8'
@@ -36,9 +32,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = '17'
-    }
+    kotlinOptions { jvmTarget = '17' }
 }
 
 dependencies {
@@ -68,8 +62,12 @@ dependencies {
     implementation 'androidx.room:room-ktx:2.6.1'
     ksp 'androidx.room:room-compiler:2.6.1'
 
-    // DataStore (save notification preferences)
+    // DataStore (notification prefs + currency toggle + exchange rate cache + tithe prefs)
     implementation 'androidx.datastore:datastore-preferences:1.0.0'
+
+    // OkHttp — fix #8: HTTP client for Frankfurter exchange rate API
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }
+

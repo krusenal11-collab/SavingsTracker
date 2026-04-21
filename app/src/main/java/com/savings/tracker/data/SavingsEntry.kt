@@ -4,15 +4,18 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 /**
- * Represents a single deposit transaction into a savings account.
- * Used to build the deposit history shown in Account Detail screen.
+ * Fix #11: Added depositDate (actual date of transfer), goalId (optional goal tag),
+ * and currency (inherited from account at time of deposit for historical accuracy).
  */
 @Entity(tableName = "savings_entries")
 data class SavingsEntry(
     @PrimaryKey(autoGenerate = true)
     val id: Int = 0,
-    val accountId: Int,          // Which account this deposit belongs to
-    val amount: Double,          // How much was deposited
-    val note: String = "",       // Optional note (e.g. "Weekly transfer")
-    val createdAt: Long = System.currentTimeMillis()
+    val accountId: Int,
+    val amount: Double,
+    val currency: String = "USD",        // "USD" or "INR" — frozen at deposit time
+    val note: String = "",
+    val goalId: Int? = null,             // Which goal this deposit contributes to (optional)
+    val depositDate: Long = System.currentTimeMillis(), // Actual date of transfer
+    val createdAt: Long = System.currentTimeMillis()    // When user recorded it in app
 )

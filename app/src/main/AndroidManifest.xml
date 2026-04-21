@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Fix #5: Internet for Frankfurter exchange rate API -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Required to show notifications on Android 13+ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Required to wake the device for scheduled reminders -->
@@ -27,15 +29,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Receives the alarm broadcast to show the weekly notification -->
-        <receiver
-            android:name=".notification.ReminderReceiver"
-            android:exported="false" />
+        <receiver android:name=".notification.ReminderReceiver" android:exported="false" />
 
-        <!-- Reschedule alarm after device reboot -->
-        <receiver
-            android:name=".notification.BootReceiver"
-            android:exported="true">
+        <receiver android:name=".notification.BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>

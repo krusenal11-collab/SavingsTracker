@@ -1,10 +1,13 @@
 package com.savings.tracker.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,95 +26,66 @@ import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: SavingsViewModel, onBack: () -> Unit = {}) {
+fun SettingsScreen(
+    viewModel: SavingsViewModel,
+    // Fix #12/#26: onBack is now required — Settings is push navigation from Home
+    onBack: () -> Unit
+) {
     val savedPrefs by viewModel.notificationPrefs.collectAsState()
     var localPrefs by remember(savedPrefs) { mutableStateOf(savedPrefs) }
     var saved      by remember { mutableStateOf(false) }
 
-    LaunchedEffect(saved) {
-        if (saved) { delay(2000); saved = false }
-    }
+    LaunchedEffect(saved) { if (saved) { delay(2000); saved = false } }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppColors.SystemBg)
-            .verticalScroll(rememberScrollState())
-    ) {
-        // Header
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(AppColors.HeaderStart, AppColors.HeaderEnd)))
-                .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 28.dp)
-        ) {
-            Text("Settings", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = (-0.5).sp)
+    Column(modifier = Modifier.fillMaxSize().background(AppColors.SystemBg).verticalScroll(rememberScrollState())) {
+        // Fix #12: Back button in header
+        Box(modifier = Modifier.fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(AppColors.HeaderStart, AppColors.HeaderEnd)))
+            .padding(start = 4.dp, end = 20.dp, top = 8.dp, bottom = 28.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = (-0.5).sp)
+            }
         }
 
         Spacer(Modifier.height(20.dp))
-
-        // Section: Notifications
-        Text("NOTIFICATIONS", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelSecondary,
-            letterSpacing = 0.5.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 0.dp))
+        Text("NOTIFICATIONS", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelSecondary, letterSpacing = 0.5.sp, modifier = Modifier.padding(horizontal = 20.dp))
         Spacer(Modifier.height(8.dp))
 
-        Card(
-            modifier  = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
-            shape     = RoundedCornerShape(14.dp),
-            colors    = CardDefaults.cardColors(containerColor = AppColors.CardBg),
-            elevation = CardDefaults.cardElevation(0.dp)
-        ) {
-            // Enable toggle
-            Row(
-                modifier          = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+        Card(modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = AppColors.CardBg), elevation = CardDefaults.cardElevation(0.dp)) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
                     Text("Weekly Reminder", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelPrimary)
                     Text("Get notified to transfer savings", fontSize = 13.sp, color = AppColors.LabelSecondary)
                 }
-                Switch(
-                    checked = localPrefs.enabled,
-                    onCheckedChange = { localPrefs = localPrefs.copy(enabled = it) },
-                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppColors.Success)
-                )
+                Switch(checked = localPrefs.enabled, onCheckedChange = { localPrefs = localPrefs.copy(enabled = it) },
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AppColors.Success))
             }
         }
 
         if (localPrefs.enabled) {
             Spacer(Modifier.height(16.dp))
-            Text("REMINDER DAY", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelSecondary,
-                letterSpacing = 0.5.sp, modifier = Modifier.padding(horizontal = 20.dp))
+            Text("REMINDER DAY", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelSecondary, letterSpacing = 0.5.sp, modifier = Modifier.padding(horizontal = 20.dp))
             Spacer(Modifier.height(8.dp))
-
-            Card(
-                modifier  = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
-                shape     = RoundedCornerShape(14.dp),
-                colors    = CardDefaults.cardColors(containerColor = AppColors.CardBg),
-                elevation = CardDefaults.cardElevation(0.dp)
-            ) {
+            Card(modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = AppColors.CardBg), elevation = CardDefaults.cardElevation(0.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    val days = listOf(Calendar.SUNDAY to "Sun", Calendar.MONDAY to "Mon",
-                        Calendar.TUESDAY to "Tue", Calendar.WEDNESDAY to "Wed",
-                        Calendar.THURSDAY to "Thu", Calendar.FRIDAY to "Fri", Calendar.SATURDAY to "Sat")
+                    val days = listOf(Calendar.SUNDAY to "Sun", Calendar.MONDAY to "Mon", Calendar.TUESDAY to "Tue",
+                        Calendar.WEDNESDAY to "Wed", Calendar.THURSDAY to "Thu", Calendar.FRIDAY to "Fri", Calendar.SATURDAY to "Sat")
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         days.forEach { (day, label) ->
                             val selected = localPrefs.dayOfWeek == day
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(50))
-                                    .background(if (selected) AppColors.Primary else AppColors.Separator),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    label.take(1),
-                                    fontSize   = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color      = if (selected) Color.White else AppColors.LabelSecondary,
-                                    modifier   = androidx.compose.ui.Modifier.clickable { localPrefs = localPrefs.copy(dayOfWeek = day) }
-                                )
+                            // Fix #33: clickable on Box, not the Text inside it
+                            Box(modifier = Modifier.size(38.dp).clip(RoundedCornerShape(50))
+                                .background(if (selected) AppColors.Primary else AppColors.Separator)
+                                .clickable { localPrefs = localPrefs.copy(dayOfWeek = day) },
+                                contentAlignment = Alignment.Center) {
+                                Text(label.take(1), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                    color = if (selected) Color.White else AppColors.LabelSecondary)
                             }
                         }
                     }
@@ -119,42 +93,27 @@ fun SettingsScreen(viewModel: SavingsViewModel, onBack: () -> Unit = {}) {
             }
 
             Spacer(Modifier.height(16.dp))
-            Text("REMINDER TIME", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelSecondary,
-                letterSpacing = 0.5.sp, modifier = Modifier.padding(horizontal = 20.dp))
+            Text("REMINDER TIME", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelSecondary, letterSpacing = 0.5.sp, modifier = Modifier.padding(horizontal = 20.dp))
             Spacer(Modifier.height(8.dp))
-
-            Card(
-                modifier  = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
-                shape     = RoundedCornerShape(14.dp),
-                colors    = CardDefaults.cardColors(containerColor = AppColors.CardBg),
-                elevation = CardDefaults.cardElevation(0.dp)
-            ) {
-                Row(
-                    modifier              = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment     = Alignment.CenterVertically
-                ) {
-                    TimeSpinner(
-                        value  = run { val h = localPrefs.hour; if (h == 0) 12 else if (h > 12) h - 12 else h },
+            Card(modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = AppColors.CardBg), elevation = CardDefaults.cardElevation(0.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    val displayHour = localPrefs.hour.let { h -> if (h == 0) 12 else if (h > 12) h - 12 else h }
+                    // Fix #35: TimeSpinner no longer has the dead twoDigit param — simplified
+                    TimeSpinner(value = displayHour,
                         onUp   = { localPrefs = localPrefs.copy(hour = if (localPrefs.hour == 23) 0 else localPrefs.hour + 1) },
-                        onDown = { localPrefs = localPrefs.copy(hour = if (localPrefs.hour == 0) 23 else localPrefs.hour - 1) }
-                    )
+                        onDown = { localPrefs = localPrefs.copy(hour = if (localPrefs.hour == 0) 23 else localPrefs.hour - 1) })
                     Text(":", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = AppColors.LabelPrimary, modifier = Modifier.padding(horizontal = 4.dp))
-                    TimeSpinner(
-                        value  = localPrefs.minute,
+                    TimeSpinner(value = localPrefs.minute,
                         onUp   = { localPrefs = localPrefs.copy(minute = if (localPrefs.minute >= 55) 0 else localPrefs.minute + 5) },
-                        onDown = { localPrefs = localPrefs.copy(minute = if (localPrefs.minute == 0) 55 else localPrefs.minute - 5) },
-                        twoDigit = true
-                    )
+                        onDown = { localPrefs = localPrefs.copy(minute = if (localPrefs.minute == 0) 55 else localPrefs.minute - 5) })
                     Spacer(Modifier.width(16.dp))
-                    FilledTonalButton(
-                        onClick = {
-                            val h = localPrefs.hour
-                            localPrefs = localPrefs.copy(hour = if (h < 12) h + 12 else h - 12)
-                        },
-                        shape  = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.Primary.copy(alpha = 0.12f))
-                    ) {
+                    FilledTonalButton(onClick = {
+                        val h = localPrefs.hour
+                        localPrefs = localPrefs.copy(hour = if (h < 12) h + 12 else h - 12)
+                    }, shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = AppColors.Primary.copy(alpha = 0.12f))) {
                         Text(if (localPrefs.hour < 12) "AM" else "PM", fontWeight = FontWeight.Bold, color = AppColors.Primary)
                     }
                 }
@@ -162,49 +121,26 @@ fun SettingsScreen(viewModel: SavingsViewModel, onBack: () -> Unit = {}) {
         }
 
         Spacer(Modifier.height(24.dp))
-
         if (saved) {
-            Text(
-                "Reminder saved!",
-                color    = AppColors.Success,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
+            Text("Reminder saved!", color = AppColors.Success, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.align(Alignment.CenterHorizontally))
             Spacer(Modifier.height(8.dp))
         }
-
-        Button(
-            onClick  = { viewModel.saveNotificationPrefs(localPrefs); saved = true },
+        Button(onClick = { viewModel.saveNotificationPrefs(localPrefs); saved = true },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(52.dp),
-            shape    = RoundedCornerShape(14.dp),
-            colors   = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
-        ) {
+            shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)) {
             Text("Save Settings", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
         }
-
         Spacer(Modifier.height(32.dp))
     }
 }
 
+// Fix #35: Removed dead `twoDigit` parameter — both branches were identical
 @Composable
-private fun TimeSpinner(value: Int, onUp: () -> Unit, onDown: () -> Unit, twoDigit: Boolean = false) {
+private fun TimeSpinner(value: Int, onUp: () -> Unit, onDown: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(onClick = onUp, modifier = Modifier.size(36.dp)) {
-            Text("▲", fontSize = 14.sp, color = AppColors.LabelSecondary)
-        }
-        Text(
-            if (twoDigit) String.format("%02d", value) else String.format("%02d", value),
-            fontSize      = 32.sp,
-            fontWeight    = FontWeight.Bold,
-            color         = AppColors.Primary,
-            letterSpacing = (-0.5).sp
-        )
-        IconButton(onClick = onDown, modifier = Modifier.size(36.dp)) {
-            Text("▼", fontSize = 14.sp, color = AppColors.LabelSecondary)
-        }
+        IconButton(onClick = onUp, modifier = Modifier.size(36.dp)) { Text("▲", fontSize = 14.sp, color = AppColors.LabelSecondary) }
+        Text(String.format("%02d", value), fontSize = 32.sp, fontWeight = FontWeight.Bold, color = AppColors.Primary, letterSpacing = (-0.5).sp)
+        IconButton(onClick = onDown, modifier = Modifier.size(36.dp)) { Text("▼", fontSize = 14.sp, color = AppColors.LabelSecondary) }
     }
 }
-
-private fun androidx.compose.ui.Modifier.clickable(onClick: () -> Unit): androidx.compose.ui.Modifier =
-    this.then(androidx.compose.foundation.clickable(onClick = onClick))
