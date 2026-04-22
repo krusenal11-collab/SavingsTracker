@@ -5,10 +5,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,17 +25,32 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.savings.tracker.data.ExchangeRateService
 import com.savings.tracker.data.SavingsEntry
+import com.savings.tracker.data.TransactionType
 import com.savings.tracker.ui.theme.AppColors
 import com.savings.tracker.ui.viewmodel.SavingsViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 
+// ── Bug 4 fix: sealed list built OUTSIDE LazyColumn so item{}/items{} are direct children ──
+private sealed class DepositListItem {
+    abstract val key: String
+    data class Header(override val key: String, val label: String, val total: Double) : DepositListItem()
+    data class Entry(
+        val entry: SavingsEntry,
+        val indexInGroup: Int,
+        val groupSize: Int
+    ) : DepositListItem() {
+        override val key: String get() = "entry_${entry.id}"
+    }
+    data class Spacer(override val key: String) : DepositListItem()
+}
+
 @Composable
 fun SummaryScreen(viewModel: SavingsViewModel, onBack: (() -> Unit)? = null) {
-    // Fix #21: Use collected state, not viewModel.accounts.value directly
     val accounts        by viewModel.accounts.collectAsState()
     val allEntries      by viewModel.allEntries.collectAsState()
-    val allEntriesAsc   by viewModel.allEntriesAsc.collectAsState()
+    val allGoals        by viewModel.allGoals.collectAsState()
+    val depositsAsc     by viewModel.depositsAsc.collectAsState()
     val displayCurrency by viewModel.displayCurrency.collectAsState()
     val exchangeRate    by viewModel.exchangeRate.collectAsState()
     val rateIsLive      by viewModel.rateIsLive.collectAsState()
@@ -43,24 +60,27 @@ fun SummaryScreen(viewModel: SavingsViewModel, onBack: (() -> Unit)? = null) {
     val displayTotal  = if (displayCurrency == "INR") totalInr else totalUsd
     val displaySymbol = if (displayCurrency == "INR") "₹" else "$"
 
-    val cal = Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1); set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }
+    val cal = Calendar.getInstance().apply {
+        set(Calendar.DAY_OF_MONTH, 1)
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0)
+    }
     val monthStart = cal.timeInMillis
+
     val thisMonthTotal = remember(allEntries, displayCurrency, exchangeRate) {
-        allEntries.filter { it.depositDate >= monthStart }
+        allEntries
+            .filter { it.depositDate >= monthStart && it.transactionType == TransactionType.DEPOSIT }
             .sumOf { ExchangeRateService.convert(it.amount, it.currency, displayCurrency, exchangeRate) }
     }
 
-    // Fix #10/#24: Convert all amounts to display currency before building chart
-    val chartPoints = remember(allEntriesAsc, displayCurrency, exchangeRate) {
+    // Chart uses deposits only — withdrawals don't distort the growth line
+    val chartPoints = remember(depositsAsc, displayCurrency, exchangeRate) {
         var running = 0.0
-        allEntriesAsc.map { entry ->
+        depositsAsc.map { entry ->
             running += ExchangeRateService.convert(entry.amount, entry.currency, displayCurrency, exchangeRate)
-            // Fix #16/#18: Use depositDate for X-axis
             Pair(entry.depositDate, running)
         }
     }
 
-    // Fix #17/#19: `now` computed inside remember block
     var timeFilter by remember { mutableStateOf(3) }
     val filteredPoints = remember(chartPoints, timeFilter) {
         val now = System.currentTimeMillis()
@@ -76,7 +96,31 @@ fun SummaryScreen(viewModel: SavingsViewModel, onBack: (() -> Unit)? = null) {
 
     val dateFmt = remember { SimpleDateFormat("MMM d, yyyy", Locale.US) }
 
+    // Bug 4 fix: build flat list here, before LazyColumn, so item{} calls are valid DSL children
+    val flatDepositItems = remember(allEntries, allGoals, displayCurrency, exchangeRate) {
+        val grouped = allEntries.groupBy { it.goalId }
+        val goalIds = grouped.keys.sortedWith(compareBy { it ?: Int.MAX_VALUE })
+        val result = mutableListOf<DepositListItem>()
+        goalIds.forEach { goalId ->
+            val groupEntries = grouped[goalId] ?: return@forEach
+            val goal = allGoals.find { it.id == goalId }
+            val label = if (goal != null) "${goal.emoji} ${goal.name}" else "📂 General"
+            val total = groupEntries.sumOf { e ->
+                val amt = ExchangeRateService.convert(e.amount, e.currency, displayCurrency, exchangeRate)
+                if (e.transactionType == TransactionType.DEPOSIT) amt else -amt
+            }
+            result.add(DepositListItem.Header("header_$goalId", label, total))
+            groupEntries.forEachIndexed { idx, entry ->
+                result.add(DepositListItem.Entry(entry, idx, groupEntries.size))
+            }
+            result.add(DepositListItem.Spacer("spacer_$goalId"))
+        }
+        result
+    }
+
     LazyColumn(modifier = Modifier.fillMaxSize().background(AppColors.SystemBg)) {
+
+        // ── Header ────────────────────────────────────────────────────────
         item {
             Box(modifier = Modifier.fillMaxWidth()
                 .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(AppColors.HeaderStart, AppColors.HeaderEnd)))
@@ -90,26 +134,31 @@ fun SummaryScreen(viewModel: SavingsViewModel, onBack: (() -> Unit)? = null) {
                     } else {
                         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                             Text("Insights", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White, letterSpacing = (-0.5).sp)
-                            Box(modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.2f))
-                                .clickable { viewModel.toggleDisplayCurrency() }.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                            Box(modifier = Modifier.clip(RoundedCornerShape(20.dp))
+                                .background(Color.White.copy(alpha = 0.2f))
+                                .clickable { viewModel.toggleDisplayCurrency() }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)) {
                                 Text(if (displayCurrency == "INR") "₹ INR" else "$ USD", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
                     Spacer(Modifier.height(4.dp))
-                    Text(if (rateIsLive) "1 USD = ₹${String.format("%.2f", exchangeRate)} · Live" else "1 USD = ₹${String.format("%.2f", exchangeRate)} · Cached",
-                        fontSize = 10.sp, color = Color.White.copy(alpha = 0.5f))
+                    Text(
+                        if (rateIsLive) "1 USD = ₹${String.format("%.2f", exchangeRate)} · Live"
+                        else "1 USD = ₹${String.format("%.2f", exchangeRate)} · Cached",
+                        fontSize = 10.sp, color = Color.White.copy(alpha = 0.5f)
+                    )
                     Spacer(Modifier.height(14.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         HeaderStatCard("Total", "$displaySymbol${String.format("%,.0f", displayTotal)}", Modifier.weight(1f))
                         HeaderStatCard("This month", "$displaySymbol${String.format("%,.0f", thisMonthTotal)}", Modifier.weight(1f))
-                        HeaderStatCard("Deposits", allEntries.size.toString(), Modifier.weight(1f))
+                        HeaderStatCard("Deposits", allEntries.count { it.transactionType == TransactionType.DEPOSIT }.toString(), Modifier.weight(1f))
                     }
                 }
             }
         }
 
-        // Chart card
+        // ── Chart ─────────────────────────────────────────────────────────
         item {
             Spacer(Modifier.height(16.dp))
             Card(modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(), shape = RoundedCornerShape(16.dp),
@@ -124,7 +173,8 @@ fun SummaryScreen(viewModel: SavingsViewModel, onBack: (() -> Unit)? = null) {
                             listOf("1M", "3M", "6M", "All").forEachIndexed { i, lbl ->
                                 Box(modifier = Modifier.clip(RoundedCornerShape(6.dp))
                                     .background(if (timeFilter == i) AppColors.Primary else AppColors.Separator)
-                                    .clickable { timeFilter = i }.padding(horizontal = 8.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
+                                    .clickable { timeFilter = i }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
                                     Text(lbl, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (timeFilter == i) Color.White else AppColors.LabelSecondary)
                                 }
                             }
@@ -144,7 +194,7 @@ fun SummaryScreen(viewModel: SavingsViewModel, onBack: (() -> Unit)? = null) {
             }
         }
 
-        // Account breakdown
+        // ── Account breakdown ─────────────────────────────────────────────
         if (accounts.isNotEmpty()) {
             item {
                 Spacer(Modifier.height(16.dp))
@@ -154,7 +204,6 @@ fun SummaryScreen(viewModel: SavingsViewModel, onBack: (() -> Unit)? = null) {
                     colors = CardDefaults.cardColors(containerColor = AppColors.CardBg), elevation = CardDefaults.cardElevation(0.dp)) {
                     accounts.forEachIndexed { index, account ->
                         val color = AppColors.forAccount(account.id)
-                        // Fix #15/#17: Convert each account to display currency for % calculation
                         val balInDisplay = ExchangeRateService.convert(account.balance, account.currency, displayCurrency, exchangeRate)
                         val progress = if (displayTotal > 0) (balInDisplay / displayTotal).toFloat().coerceIn(0f, 1f) else 0f
                         val accountSymbol = if (account.currency == "INR") "₹" else "$"
@@ -181,51 +230,75 @@ fun SummaryScreen(viewModel: SavingsViewModel, onBack: (() -> Unit)? = null) {
             }
         }
 
+        // ── Deposits by goal ──────────────────────────────────────────────
         item {
             Spacer(Modifier.height(20.dp))
-            Text("All deposits", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppColors.LabelPrimary, modifier = Modifier.padding(horizontal = 20.dp))
+            Text("Deposits by goal", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppColors.LabelPrimary, modifier = Modifier.padding(horizontal = 20.dp))
             Spacer(Modifier.height(10.dp))
         }
 
         if (allEntries.isEmpty()) {
-            item { Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) { Text("No deposits yet", color = AppColors.LabelSecondary) } }
+            item {
+                Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
+                    Text("No deposits yet", color = AppColors.LabelSecondary)
+                }
+            }
         } else {
-            // Fix #38: itemsIndexed so LazyColumn recycles each row
-            itemsIndexed(allEntries, key = { _, e -> e.id }) { index, entry ->
-                // Fix #21: Use collected `accounts` state, not viewModel.accounts.value
-                val account = accounts.find { it.id == entry.accountId }
-                val color = if (account != null) AppColors.forAccount(account.id) else AppColors.LabelSecondary
-                val entrySymbol = if (entry.currency == "INR") "₹" else "$"
-                val displayAmt = ExchangeRateService.convert(entry.amount, entry.currency, displayCurrency, exchangeRate)
-
-                Card(modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
-                    shape = when {
-                        allEntries.size == 1 -> RoundedCornerShape(14.dp)
-                        index == 0 -> RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp)
-                        index == allEntries.lastIndex -> RoundedCornerShape(bottomStart = 14.dp, bottomEnd = 14.dp)
-                        else -> RoundedCornerShape(0.dp)
-                    },
-                    colors = CardDefaults.cardColors(containerColor = AppColors.CardBg), elevation = CardDefaults.cardElevation(0.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)).background(color.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.TrendingUp, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(account?.name ?: "Unknown", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelPrimary)
-                            if (entry.note.isNotBlank()) Text(entry.note, fontSize = 11.sp, color = AppColors.LabelSecondary)
-                            // Fix #16/#29: Show depositDate, date only
-                            Text(dateFmt.format(Date(entry.depositDate)), fontSize = 11.sp, color = AppColors.LabelSecondary)
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("+$entrySymbol${String.format("%,.2f", entry.amount)}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AppColors.Success)
-                            if (entry.currency != displayCurrency) {
-                                Text("≈ $displaySymbol${String.format("%,.2f", displayAmt)}", fontSize = 10.sp, color = AppColors.LabelSecondary)
-                            }
+            // Bug 4 fix: single items() call over the pre-built flat list
+            items(flatDepositItems, key = { it.key }) { listItem ->
+                when (listItem) {
+                    is DepositListItem.Header -> {
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(listItem.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = AppColors.LabelPrimary)
+                            Text("$displaySymbol${String.format("%,.2f", listItem.total)}", fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                                color = if (listItem.total >= 0) AppColors.Success else AppColors.Destructive)
                         }
                     }
+                    is DepositListItem.Entry -> {
+                        val entry = listItem.entry
+                        val account = accounts.find { it.id == entry.accountId }
+                        val color = if (account != null) AppColors.forAccount(account.id) else AppColors.LabelSecondary
+                        val entrySymbol = if (entry.currency == "INR") "₹" else "$"
+                        val displayAmt = ExchangeRateService.convert(entry.amount, entry.currency, displayCurrency, exchangeRate)
+                        val isWithdrawal = entry.transactionType == TransactionType.WITHDRAWAL
+                        val amtColor = if (isWithdrawal) AppColors.Destructive else AppColors.Success
+                        val prefix = if (isWithdrawal) "−" else "+"
+                        val idx = listItem.indexInGroup
+                        val size = listItem.groupSize
+
+                        Card(modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+                            shape = when {
+                                size == 1     -> RoundedCornerShape(14.dp)
+                                idx == 0      -> RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp)
+                                idx == size-1 -> RoundedCornerShape(bottomStart = 14.dp, bottomEnd = 14.dp)
+                                else          -> RoundedCornerShape(0.dp)
+                            },
+                            colors = CardDefaults.cardColors(containerColor = AppColors.CardBg), elevation = CardDefaults.cardElevation(0.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Box(modifier = Modifier.size(28.dp).clip(RoundedCornerShape(7.dp))
+                                    .background((if (isWithdrawal) AppColors.Destructive else color).copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                                    Icon(if (isWithdrawal) Icons.Default.ArrowUpward else Icons.Default.TrendingUp,
+                                        contentDescription = null, tint = if (isWithdrawal) AppColors.Destructive else color, modifier = Modifier.size(16.dp))
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(account?.name ?: "Unknown", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelPrimary)
+                                    if (entry.note.isNotBlank()) Text(entry.note, fontSize = 11.sp, color = AppColors.LabelSecondary)
+                                    Text(dateFmt.format(Date(entry.depositDate)), fontSize = 11.sp, color = AppColors.LabelSecondary)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("$prefix$entrySymbol${String.format("%,.2f", entry.amount)}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = amtColor)
+                                    if (entry.currency != displayCurrency) {
+                                        Text("≈ $displaySymbol${String.format("%,.2f", displayAmt)}", fontSize = 10.sp, color = AppColors.LabelSecondary)
+                                    }
+                                }
+                            }
+                        }
+                        if (idx < size - 1) HorizontalDivider(modifier = Modifier.padding(start = 70.dp), color = AppColors.Separator, thickness = 0.5.dp)
+                    }
+                    is DepositListItem.Spacer -> Spacer(Modifier.height(8.dp))
                 }
-                if (index < allEntries.lastIndex) HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, start = 70.dp), color = AppColors.Separator, thickness = 0.5.dp)
             }
         }
 
@@ -239,9 +312,9 @@ fun SavingsLineChart(chartPoints: List<Pair<Long, Double>>, modifier: Modifier =
     val fillColor = AppColors.Primary.copy(alpha = 0.10f)
     Canvas(modifier = modifier) {
         if (chartPoints.size < 2) return@Canvas
-        val maxVal = chartPoints.maxOf { it.second }.coerceAtLeast(1.0)
-        val minTime = chartPoints.minOf { it.first }.toFloat()
-        val maxTime = chartPoints.maxOf { it.first }.toFloat()
+        val maxVal    = chartPoints.maxOf { it.second }.coerceAtLeast(1.0)
+        val minTime   = chartPoints.minOf { it.first }.toFloat()
+        val maxTime   = chartPoints.maxOf { it.first }.toFloat()
         val timeRange = (maxTime - minTime).coerceAtLeast(1f)
         fun xOf(t: Long) = ((t.toFloat() - minTime) / timeRange) * size.width
         fun yOf(v: Double) = size.height - (v / maxVal * size.height * 0.88f).toFloat() - size.height * 0.06f

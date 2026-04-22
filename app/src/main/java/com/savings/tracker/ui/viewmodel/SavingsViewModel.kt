@@ -13,31 +13,30 @@ class SavingsViewModel(application: Application) : AndroidViewModel(application)
     private val repository: SavingsRepository
     private val prefsManager: PreferencesManager
 
-    // ── Raw DB streams ─────────────────────────────────────────────────────
     val accounts: StateFlow<List<BankAccount>>
     val allEntries: StateFlow<List<SavingsEntry>>
-    val allEntriesAsc: StateFlow<List<SavingsEntry>>
+    val depositsAsc: StateFlow<List<SavingsEntry>>   // Chart: deposits only, oldest first
     val allGoals: StateFlow<List<Goal>>
     val allTitheEntries: StateFlow<List<TitheEntry>>
     val notificationPrefs: StateFlow<NotificationPrefs>
     val tithePrefs: StateFlow<TithePrefs>
-
-    // Fix #3: Global currency toggle persisted in DataStore
     val displayCurrency: StateFlow<String>
 
-    // Fix #20: Exchange rate with offline fallback
-    private val _exchangeRate    = MutableStateFlow(83.5)
-    private val _rateIsLive      = MutableStateFlow(false)
+    private val _exchangeRate = MutableStateFlow(83.5)
+    private val _rateIsLive   = MutableStateFlow(false)
     val exchangeRate: StateFlow<Double>  = _exchangeRate.asStateFlow()
     val rateIsLive: StateFlow<Boolean>   = _rateIsLive.asStateFlow()
 
-    // Fix #6/#15: Total savings computed in-memory after currency conversion
+    // Withdrawal result feedback
+    private val _withdrawalError = MutableStateFlow<String?>(null)
+    val withdrawalError: StateFlow<String?> = _withdrawalError.asStateFlow()
+
     val totalSavingsInr: StateFlow<Double>
     val totalSavingsUsd: StateFlow<Double>
 
     init {
-        val dao    = SavingsDatabase.getDatabase(application).savingsDao()
-        repository = SavingsRepository(dao)
+        val dao      = SavingsDatabase.getDatabase(application).savingsDao()
+        repository   = SavingsRepository(dao)
         prefsManager = PreferencesManager(application)
 
         accounts = repository.allAccounts
@@ -46,7 +45,7 @@ class SavingsViewModel(application: Application) : AndroidViewModel(application)
         allEntries = repository.allEntries
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-        allEntriesAsc = repository.allEntriesAsc
+        depositsAsc = repository.depositsAsc
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
         allGoals = repository.allGoals
@@ -64,20 +63,14 @@ class SavingsViewModel(application: Application) : AndroidViewModel(application)
         displayCurrency = prefsManager.displayCurrency
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "INR")
 
-        // Fix #6: Compute totals in-memory using the live exchange rate
         totalSavingsInr = combine(accounts, _exchangeRate) { accs, rate ->
-            accs.sumOf { acc ->
-                ExchangeRateService.convert(acc.balance, acc.currency, "INR", rate)
-            }
+            accs.sumOf { ExchangeRateService.convert(it.balance, it.currency, "INR", rate) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
 
         totalSavingsUsd = combine(accounts, _exchangeRate) { accs, rate ->
-            accs.sumOf { acc ->
-                ExchangeRateService.convert(acc.balance, acc.currency, "USD", rate)
-            }
+            accs.sumOf { ExchangeRateService.convert(it.balance, it.currency, "USD", rate) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0.0)
 
-        // Fetch exchange rate on launch
         viewModelScope.launch {
             val (cachedRate, cacheTime) = prefsManager.exchangeRateCache.first()
             val (rate, isLive) = ExchangeRateService.getRate(cachedRate, cacheTime)
@@ -86,18 +79,14 @@ class SavingsViewModel(application: Application) : AndroidViewModel(application)
             if (isLive) prefsManager.saveExchangeRate(rate)
         }
 
-        // Auto-schedule notification alarm on startup
         viewModelScope.launch {
             val prefs = prefsManager.notificationPrefs.first()
-            if (prefs.enabled) {
-                AlarmScheduler.schedule(application, prefs.dayOfWeek, prefs.hour, prefs.minute)
-            }
+            if (prefs.enabled) AlarmScheduler.schedule(application, prefs.dayOfWeek, prefs.hour, prefs.minute)
         }
     }
 
     // ── Currency toggle ────────────────────────────────────────────────────
 
-    /** Fix #3: Single toggle updates DataStore → propagates to all screens via StateFlow */
     fun toggleDisplayCurrency() {
         viewModelScope.launch {
             val current = prefsManager.displayCurrency.first()
@@ -105,16 +94,10 @@ class SavingsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun convertToDisplay(amount: Double, fromCurrency: String): Double {
-        val target = displayCurrency.value
-        return ExchangeRateService.convert(amount, fromCurrency, target, _exchangeRate.value)
-    }
-
     val displaySymbol: String get() = if (displayCurrency.value == "INR") "₹" else "$"
 
     // ── Account actions ────────────────────────────────────────────────────
 
-    /** Fix #7/#25: Currency param + duplicate name check */
     fun addAccount(name: String, currency: String, onDuplicate: () -> Unit = {}) {
         viewModelScope.launch {
             val exists = accounts.value.any { it.name.equals(name.trim(), ignoreCase = true) }
@@ -127,18 +110,49 @@ class SavingsViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch { repository.deleteAccount(account) }
     }
 
-    // ── Deposit actions ────────────────────────────────────────────────────
+    // ── Deposit / Withdrawal ───────────────────────────────────────────────
 
-    fun addDeposit(
-        accountId: Int,
-        amount: Double,
-        note: String,
-        goalId: Int?,
-        depositDate: Long
-    ) {
+    fun addDeposit(accountId: Int, amount: Double, note: String, goalId: Int?, depositDate: Long) {
         viewModelScope.launch {
             val account = accounts.value.find { it.id == accountId } ?: return@launch
             repository.addDeposit(accountId, amount, account.currency, note, goalId, depositDate)
+        }
+    }
+
+    /** Withdraw from a specific account. Calls onResult(true) on success, onResult(false) on insufficient funds. */
+    fun withdrawFromAccount(
+        accountId: Int, amount: Double, note: String,
+        goalId: Int? = null, withdrawalDate: Long,
+        onResult: (success: Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            val account = accounts.value.find { it.id == accountId }
+            if (account == null) { onResult(false); return@launch }
+            val success = repository.withdrawFromAccount(
+                accountId, amount, account.currency, note, goalId, withdrawalDate
+            )
+            // Switch to Main dispatcher to update UI state safely after coroutine
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onResult(success)
+            }
+        }
+    }
+
+    /** Withdraw from a goal — reduces account balance + goal progress */
+    fun withdrawFromGoal(
+        goalId: Int, accountId: Int, amount: Double,
+        note: String, withdrawalDate: Long,
+        onResult: (success: Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            val account = accounts.value.find { it.id == accountId }
+            if (account == null) { onResult(false); return@launch }
+            val success = repository.withdrawFromGoal(
+                goalId, accountId, amount, account.currency, note, withdrawalDate
+            )
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onResult(success)
+            }
         }
     }
 
@@ -152,37 +166,40 @@ class SavingsViewModel(application: Application) : AndroidViewModel(application)
 
     fun addGoal(name: String, emoji: String, targetAmount: Double, targetCurrency: String, targetDate: Long) {
         viewModelScope.launch {
-            repository.addGoal(Goal(
-                name           = name.trim(),
-                emoji          = emoji,
-                targetAmount   = targetAmount,
-                targetCurrency = targetCurrency,
-                targetDate     = targetDate
-            ))
+            repository.addGoal(Goal(name = name.trim(), emoji = emoji,
+                targetAmount = targetAmount, targetCurrency = targetCurrency, targetDate = targetDate))
         }
     }
 
-    fun deleteGoal(goal: Goal) {
-        viewModelScope.launch { repository.deleteGoal(goal) }
+    /**
+     * Delete a goal.
+     * withdrawFunds=true  → subtract saved amounts from accounts (fulfilled goal)
+     * withdrawFunds=false → keep money in accounts, just unlink deposits
+     */
+    fun deleteGoal(goal: Goal, withdrawFunds: Boolean = false) {
+        viewModelScope.launch { repository.deleteGoal(goal, withdrawFunds) }
     }
 
+    /** Saved amount toward a goal in the current display currency */
     fun savedAmountForGoal(goalId: Int, entries: List<SavingsEntry>): Double {
-        val rate = _exchangeRate.value
+        val rate    = _exchangeRate.value
         val display = displayCurrency.value
+        // Deposits add, withdrawals subtract — goal progress reflects net savings
         return entries
             .filter { it.goalId == goalId }
-            .sumOf { ExchangeRateService.convert(it.amount, it.currency, display, rate) }
+            .sumOf { entry ->
+                val amount = ExchangeRateService.convert(entry.amount, entry.currency, display, rate)
+                if (entry.transactionType == TransactionType.DEPOSIT) amount else -amount
+            }
+            .coerceAtLeast(0.0)
     }
 
     // ── Tithe actions ──────────────────────────────────────────────────────
 
     fun addTitheEntry(
-        paycheckAmount: Double,
-        paycheckCurrency: String,
-        donationPercent: Double,
-        donationAmount: Double,
-        accountId: Int,
-        paycheckDate: Long
+        paycheckAmount: Double, paycheckCurrency: String,
+        donationPercent: Double, donationAmount: Double,
+        accountId: Int, paycheckDate: Long
     ) {
         viewModelScope.launch {
             repository.addTitheEntry(TitheEntry(
@@ -194,12 +211,24 @@ class SavingsViewModel(application: Application) : AndroidViewModel(application)
                 paycheckDate     = paycheckDate,
                 createdAt        = System.currentTimeMillis()
             ))
-            // Fix #37: Persist tithe preferences for next session
             prefsManager.saveTithePrefs(TithePrefs(donationPercent, paycheckAmount, paycheckCurrency))
         }
     }
 
-    // ── Notification settings ──────────────────────────────────────────────
+    /** Delete a tithe entry completely */
+    fun deleteTitheEntry(entry: TitheEntry) {
+        viewModelScope.launch { repository.deleteTitheEntry(entry) }
+    }
+
+    /** Reduce a tithe entry to a new (lower) amount */
+    fun reduceTitheEntry(entry: TitheEntry, newAmount: Double, onError: () -> Unit = {}) {
+        viewModelScope.launch {
+            try { repository.reduceTitheEntry(entry, newAmount) }
+            catch (e: Exception) { onError() }
+        }
+    }
+
+    // ── Notification ───────────────────────────────────────────────────────
 
     fun saveNotificationPrefs(prefs: NotificationPrefs) {
         viewModelScope.launch {

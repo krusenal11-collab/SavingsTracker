@@ -7,6 +7,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -204,7 +206,14 @@ fun TitheScreen(viewModel: SavingsViewModel) {
             }
         }
 
-        // ── History ───────────────────────────────────────────────────────
+    // Bug 10 fix: hoist action states OUT of items{} lambda to prevent reset on scroll
+    // LazyColumn recycles composables — remember inside items{} resets when row leaves viewport
+    val expandedIds    = remember { mutableStateMapOf<Int, Boolean>() }
+    val showReduceIds  = remember { mutableStateMapOf<Int, Boolean>() }
+    val reduceTextMap  = remember { mutableStateMapOf<Int, String>() }
+    val deleteConfirmIds = remember { mutableStateMapOf<Int, Boolean>() }
+
+        // ── History with delete + reduce ──────────────────────────────────
         if (titheEntries.isNotEmpty()) {
             item {
                 Spacer(Modifier.height(24.dp))
@@ -213,21 +222,104 @@ fun TitheScreen(viewModel: SavingsViewModel) {
                 Spacer(Modifier.height(8.dp))
             }
             items(titheEntries, key = { it.id }) { entry ->
-                val entrySymbol = if (entry.paycheckCurrency == "INR") "₹" else "$"
+                val entrySymbol      = if (entry.paycheckCurrency == "INR") "₹" else "$"
+                val showActions      = expandedIds[entry.id] == true
+                val showReduce       = showReduceIds[entry.id] == true
+                val showConfirmDelete = deleteConfirmIds[entry.id] == true
+                val reduceText       = reduceTextMap[entry.id] ?: ""
+
                 Card(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = AppColors.CardBg), elevation = CardDefaults.cardElevation(0.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(AppColors.TithePurple.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-                            Text("💜", fontSize = 16.sp)
+                    colors = CardDefaults.cardColors(containerColor = AppColors.CardBg),
+                    elevation = CardDefaults.cardElevation(0.dp)) {
+                    Column {
+                        Row(modifier = Modifier.fillMaxWidth().clickable { expandedIds[entry.id] = !showActions }.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp))
+                                .background(AppColors.TithePurple.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                                Text("💜", fontSize = 16.sp)
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("${entry.donationPercent.roundToInt()}% of $entrySymbol${String.format("%,.0f", entry.paycheckAmount)}",
+                                    fontSize = 13.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelPrimary)
+                                Text(shortFmt.format(Date(entry.paycheckDate)), fontSize = 11.sp, color = AppColors.LabelSecondary)
+                            }
+                            Text("$entrySymbol${String.format("%,.2f", entry.donationAmount)}",
+                                fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AppColors.TithePurple)
+                            Icon(if (showActions) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null, tint = AppColors.LabelSecondary, modifier = Modifier.size(18.dp))
                         }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("${entry.donationPercent.roundToInt()}% of $entrySymbol${String.format("%,.0f", entry.paycheckAmount)}", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = AppColors.LabelPrimary)
-                            Text(shortFmt.format(Date(entry.paycheckDate)), fontSize = 11.sp, color = AppColors.LabelSecondary)
+
+                        // Expanded action row
+                        if (showActions) {
+                            HorizontalDivider(color = AppColors.Separator, thickness = 0.5.dp)
+                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Reduce amount
+                                OutlinedButton(onClick = { showReduceIds[entry.id] = !showReduce; reduceTextMap[entry.id] = "" },
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.Warning)) {
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Reduce", fontSize = 12.sp)
+                                }
+                                // Delete entry
+                                OutlinedButton(onClick = { deleteConfirmIds[entry.id] = true },
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.Destructive)) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Delete", fontSize = 12.sp)
+                                }
+                            }
+
+                            // Inline reduce field
+                            if (showReduce) {
+                                Column(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Enter the corrected donation amount (must be less than $entrySymbol${String.format("%,.2f", entry.donationAmount)})",
+                                        fontSize = 11.sp, color = AppColors.LabelSecondary)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        OutlinedTextField(value = reduceText, onValueChange = { reduceTextMap[entry.id] = it },
+                                            modifier = Modifier.weight(1f), label = { Text("New amount") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                            prefix = { Text(entrySymbol) }, singleLine = true,
+                                            isError = reduceText.isNotEmpty() && (reduceText.toDoubleOrNull() == null || (reduceText.toDoubleOrNull() ?: 0.0) >= entry.donationAmount),
+                                            shape = RoundedCornerShape(10.dp))
+                                        val newAmt = reduceText.toDoubleOrNull()
+                                        val reduceValid = newAmt != null && newAmt > 0 && newAmt < entry.donationAmount
+                                        Button(onClick = {
+                                            if (reduceValid) {
+                                                viewModel.reduceTitheEntry(entry, newAmt!!)
+                                                showReduceIds[entry.id] = false
+                                                expandedIds[entry.id] = false
+                                                reduceTextMap.remove(entry.id)
+                                            }
+                                        }, enabled = reduceValid, shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Warning)) {
+                                            Text("Save", fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        Text("$entrySymbol${String.format("%,.2f", entry.donationAmount)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AppColors.TithePurple)
                     }
+                }
+
+                if (showConfirmDelete) {
+                    AlertDialog(
+                        onDismissRequest = { deleteConfirmIds[entry.id] = false },
+                        title = { Text("Delete tithe record?") },
+                        text  = { Text("This will remove the ${shortFmt.format(Date(entry.paycheckDate))} donation of $entrySymbol${String.format("%,.2f", entry.donationAmount)} from your history. Your total given will decrease accordingly.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                viewModel.deleteTitheEntry(entry)
+                                deleteConfirmIds.remove(entry.id)
+                                expandedIds.remove(entry.id)
+                            }) { Text("Delete", color = AppColors.Destructive) }
+                        },
+                        dismissButton = { TextButton(onClick = { deleteConfirmIds[entry.id] = false }) { Text("Cancel") } }
+                    )
                 }
             }
         }
